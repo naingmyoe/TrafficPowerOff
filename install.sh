@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Root အခွင့်အရေးရှိမရှိ စစ်ဆေးခြင်းtest
+# Root အခွင့်အရေးရှိမရှိ စစ်ဆေးခြင်း
 if [ "$EUID" -ne 0 ]; then
   echo "ကျေးဇူးပြု၍ script ကို root သို့မဟုတ် sudo ဖြင့် run ပေးပါရန်။"
   exit 1
@@ -30,13 +30,29 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LIMIT_GB=4000
 #--------------------------------------------------
 
-# vnStat ထဲမှ eth0 interface ၏ ယခုလအတွက် Total Traffic (Rx + Tx) ကို Megabytes (MB) အဖြစ် ဖတ်ယူခြင်း
-CURRENT_MB=$(vnstat -i eth0 --json 2>/dev/null | jq '(.interfaces[]? | select(.name=="eth0") | .traffic.months[]? | select(.date.year == '$(date +%Y)' and .date.month == '$(date +%-m)') | ((.rx + .tx) / 1024 / 1024)) // 0' 2>/dev/null | awk '{print int($1)}')
+# လက်ရှိ လ (ဥပမာ- 2026-07) အတွက် စုစုပေါင်း Traffic ကို vnstat မူလ output မှ တိုက်ရိုက်ဆွဲထုတ်ခြင်း
+MONTH_STR=$(date +%Y-%m)
+LINE=$(vnstat -i eth0 -m | grep "$MONTH_STR")
 
-# ဒေတာ မရှိသေးပါက သို့မဟုတ် null ဖြစ်ပါက 0 သတ်မှတ်မည်
-if [ -z "$CURRENT_MB" ]; then
-    CURRENT_MB=0
-fi
+# ရလဒ်မှ Total Value နှင့် Unit (GiB / MiB / TiB) ကို ခွဲထုတ်ခြင်း
+VAL=$(echo "$LINE" | awk -F'|' '{print $3}' | awk '{print $1}')
+UNIT=$(echo "$LINE" | awk -F'|' '{print $3}' | awk '{print $2}')
+
+# Unit အလိုက် Megabytes (MB) သို့ တိကျစွာ ပြောင်းလဲတွက်ချက်ခြင်း
+case "$UNIT" in
+    "TiB"|"TB")
+        CURRENT_MB=$(awk "BEGIN {printf \"%.0f\", $VAL * 1024 * 1024}")
+        ;;
+    "GiB"|"GB")
+        CURRENT_MB=$(awk "BEGIN {printf \"%.0f\", $VAL * 1024}")
+        ;;
+    "MiB"|"MB")
+        CURRENT_MB=$(awk "BEGIN {printf \"%.0f\", $VAL}")
+        ;;
+    *)
+        CURRENT_MB=0
+        ;;
+esac
 
 # MB မှ GB သို့ ပြောင်းလဲခြင်း (Log ဖိုင်တွင် ပြသရန်အတွက်)
 CURRENT_GB=$(awk "BEGIN {printf \"%.2f\", $CURRENT_MB/1024}")
