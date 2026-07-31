@@ -6,3 +6,6 @@ bash <(curl -Ls https://raw.githubusercontent.com/naingmyoe/TrafficPowerOff/refs
 ```bash
 cat /var/log/traffic_check.log
 ```
+```bash
+> /var/log/traffic_check.log
+```
