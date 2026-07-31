@@ -26,24 +26,29 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 #--------------------------------------------------
 # (ပြင်ဆင်ရန်) သင်သတ်မှတ်ချင်တဲ့ Traffic Limit (GB အနေနဲ့ရေးရန်)
-# ဥပမာ - 2TB ဆိုလျှင် 2000 ဟု ရေးပါ။
 LIMIT_GB=4000
 #--------------------------------------------------
 
 # GB ကို Bytes ပမာဏသို့ ပြောင်းလဲခြင်း
 LIMIT_BYTES=$((LIMIT_GB * 1024 * 1024 * 1024))
 
-# vnStat ထဲမှ ယခုလ၏ စုစုပေါင်း Traffic (Rx + Tx) ကို တွက်ချက်ခြင်း
-CURRENT_BYTES=$(vnstat --json | jq '.interfaces[0].traffic.months[] | select(.date.year == '$(date +%Y)' and .date.month == '$(date +%-m)') | .rx + .tx')
+# eth0 Interface ထဲမှ ယခုလ၏ စုစုပေါင်း Traffic (Rx + Tx) ကို တွက်ချက်ခြင်း (jq error မတက်အောင် ပြင်ထားပါသည်)
+CURRENT_BYTES=$(vnstat -i eth0 --json 2>/dev/null | jq '(.interfaces[]? | select(.name=="eth0") | .traffic.months[]? | select(.date.year == '$(date +%Y)' and .date.month == '$(date +%-m)') | (.rx + .tx)) // 0' 2>/dev/null)
 
-# အကယ်၍ ယခုလအတွက် ဒေတာ မရှိသေးပါက 0 ဟု သတ်မှတ်မည်
+# အကယ်၍ ဒေတာ မရှိသေးပါက သို့မဟုတ် null ဖြစ်နေပါက 0 ဟု သတ်မှတ်မည်
 if [ -z "$CURRENT_BYTES" ] || [ "$CURRENT_BYTES" = "null" ]; then
     CURRENT_BYTES=0
 fi
 
-# စစ်ဆေးခြင်း - သတ်မှတ် Limit ထက် ကျော်လွန်သွားပါက စက်ကို ပိတ်ပစ်မည်
+# Bytes ကို GB အဖြစ် ပြောင်းလဲကြည့်ခြင်း (Log ရေးရန်အတွက်)
+CURRENT_GB=$(awk "BEGIN {printf \"%.2f\", $CURRENT_BYTES/1024/1024/1024}")
+
+# ၁။ Cron run တိုင်း စစ်ဆေးချက် မှတ်တမ်းတင်ခြင်း (Status Log)
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Checked: Current usage ${CURRENT_GB} GB / Limit ${LIMIT_GB} GB" >> /var/log/traffic_check.log
+
+# ၂။ စစ်ဆေးခြင်း - သတ်မှတ် Limit ထက် ကျော်လွန်သွားပါက စက်ကို ပိတ်ပစ်မည်
 if [ "$CURRENT_BYTES" -gt "$LIMIT_BYTES" ]; then
-    echo "$(date): Traffic limit exceeded ($LIMIT_GB GB). Powering off system..." >> /var/log/traffic_shutdown.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - EXCEEDED LIMIT! Traffic limit exceeded (${CURRENT_GB} GB / ${LIMIT_GB} GB). Powering off system..." >> /var/log/traffic_shutdown.log
     poweroff
 fi
 EOF
@@ -54,11 +59,9 @@ chmod +x /root/check_traffic.sh
 
 # အဆင့် (၄) ၅ မိနစ်တစ်ကြိမ် အလိုအလျောက် စစ်ခိုင်းခြင်း (Cron Job)
 echo "[၄/၄] Cron Job (၅ မိနစ်တစ်ကြိမ် စစ်ဆေးရန်) ထည့်သွင်းနေသည်..."
-# ထပ်ခါတလဲလဲ မဖြစ်အောင် ရှေးဟောင်း စကရစ်မှတ်တမ်းရှိလျှင် အရင်ဖျက်ပြီးမှ အသစ်ထည့်ခြင်း
 (crontab -l 2>/dev/null | grep -v "/root/check_traffic.sh" ; echo "*/5 * * * * /bin/bash /root/check_traffic.sh") | crontab -
 
 echo "=================================================="
 echo "အားလုံး အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။"
-echo "vnStat ကို သွင်းပြီး Service ကိုပါ ချက်ချင်း မောင်းနှင်ပေးလိုက်ပါပြီ။"
 echo "စနစ်သည် ၅ မိနစ်တစ်ကြိမ် Traffic ကို နောက်ကွယ်မှ စစ်ဆေးပေးသွားမည် ဖြစ်သည်။"
 echo "=================================================="
