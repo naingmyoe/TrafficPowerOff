@@ -64,8 +64,8 @@ esac
 CURRENT_GB=\$(awk "BEGIN {printf \"%.2f\", \$CURRENT_MB/1024}")
 LIMIT_MB=\$((LIMIT_GB * 1024))
 
-# ၁။ Cron run တိုင်း စစ်ဆေးချက် မှတ်တမ်းတင်ခြင်း (Date မပါဘဲ GB သာ ပြသမည်)
-echo "\${CURRENT_GB} GB" > /var/log/traffic_check.log
+# ၁။ Cron run တိုင်း စစ်ဆေးချက် မှတ်တမ်းတင်ခြင်း (Current Usage / Limit GB ပြသမည်)
+echo "\${CURRENT_GB} GB / \${LIMIT_GB} GB" > /var/log/traffic_check.log
 
 # ၂။ စစ်ဆေးခြင်း - သတ်မှတ် Limit ထက် ကျော်လွန်သွားပါက စက်ကို ပိတ်ပစ်မည်
 if [ "\$CURRENT_MB" -gt "\$LIMIT_MB" ]; then
@@ -88,6 +88,4 @@ echo "စကရစ်ကို စမ်းသပ် run ကြည့်နေ�
 
 echo "=================================================="
 echo "အားလုံး အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။"
-echo "စနစ်၏ Timezone ကို Myanmar Timezone (MMT) သို့ ပြောင်းလဲထားပါသည်။"
-echo "လက်ရှိ သတ်မှတ်ထားသော Traffic Limit မှာ ${LIMIT_GB} GB ဖြစ်သည်။"
 echo "=================================================="
