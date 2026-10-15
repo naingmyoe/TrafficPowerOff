@@ -36,8 +36,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LIMIT_GB=${LIMIT_GB}
 #--------------------------------------------------
 
-# Active ဖြစ်နေသော Network Interface ကို အလိုအလျောက် ရှာဖွေခြင်း
-INTERFACE=\$(vnstat --iflist | awk '{print \$1}' | head -n 1)
+# မည်သည့် Network Interface နာမည်ဖြစ်စေ (eth0, enp6s18, ens3 စသည်ဖြင့်) အလိုအလျောက် ရှာဖွေဖမ်းယူခြင်း
+INTERFACE=\$(ip route show default 2>/dev/null | awk '{print \$5}' | head -n 1)
+if [ -z "\$INTERFACE" ]; then
+    INTERFACE=\$(vnstat --iflist 2>/dev/null | awk '{print \$1}' | head -n 1)
+fi
 if [ -z "\$INTERFACE" ]; then
     INTERFACE="eth0"
 fi
