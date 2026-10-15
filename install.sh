@@ -8,6 +8,14 @@ fi
 
 echo "=== အလိုအလျောက် Traffic စစ်ဆေးသည့် စနစ် စတင်ထည့်သွင်းနေသည် ==="
 
+# မြန်မာစံတော်ချိန် (Asia/Yangon) သို့ ပြောင်းလဲခြင်း
+timedatectl set-timezone Asia/Yangon
+
+# Traffic Limit ကို အသုံးပြုသူထံမှ တောင်းဆိုခြင်း
+read -p "သတ်မှတ်လိုသော Traffic Limit (GB) ကို ရိုက်ထည့်ပါ [Default: 4000]: " USER_LIMIT
+LIMIT_GB=${USER_LIMIT:-4000}
+echo "သတ်မှတ်ထားသော Limit: ${LIMIT_GB} GB"
+
 # အဆင့် (၁) လိုအပ်သော Packages များ သွင်းခြင်းနှင့် vnStat Service ဖွင့်ခြင်း
 echo "[၁/၄] apt updates နှင့် jq, vnstat တို့ကို သွင်းနေသည်..."
 apt update && apt install jq vnstat -y
@@ -18,52 +26,55 @@ systemctl start vnstat
 
 # အဆင့် (၂) Auto Shutdown Script ဖန်တီးခြင်း
 echo "[၂/၄] /root/check_traffic.sh စကရစ်ကို တည်ဆောက်နေသည်..."
-cat << 'EOF' > /root/check_traffic.sh
+cat << EOF > /root/check_traffic.sh
 #!/bin/bash
 
 # စနစ်လမ်းကြောင်း သတ်မှတ်ချက်
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 #--------------------------------------------------
-# (ပြင်ဆင်ရန်) သင်သတ်မှတ်ချင်တဲ့ Traffic Limit (GB အနေနဲ့ရေးရန်)
-# ဥပမာ - 4TB ဆိုလျှင် 4000 ဟု ရေးပါ။
-LIMIT_GB=4000
+LIMIT_GB=${LIMIT_GB}
 #--------------------------------------------------
 
-# လက်ရှိ လ (ဥပမာ- 2026-07) အတွက် စုစုပေါင်း Traffic ကို vnstat မူလ output မှ တိုက်ရိုက်ဆွဲထုတ်ခြင်း
-MONTH_STR=$(date +%Y-%m)
-LINE=$(vnstat -i eth0 -m | grep "$MONTH_STR")
+# Active ဖြစ်နေသော Network Interface ကို အလိုအလျောက် ရှာဖွေခြင်း
+INTERFACE=\$(vnstat --iflist | awk '{print \$1}' | head -n 1)
+if [ -z "\$INTERFACE" ]; then
+    INTERFACE="eth0"
+fi
 
-# ရလဒ်မှ Total Value နှင့် Unit (GiB / MiB / TiB) ကို ခွဲထုတ်ခြင်း
-VAL=$(echo "$LINE" | awk -F'|' '{print $3}' | awk '{print $1}')
-UNIT=$(echo "$LINE" | awk -F'|' '{print $3}' | awk '{print $2}')
+# လက်ရှိ လ အတွက် စုစုပေါင်း Traffic ကို vnstat မူလ output မှ တိုက်ရိုက်ဆွဲထုတ်ခြင်း (Locale ပြဿနာမရှိစေရန် ပထမဆုံး data line ကို ယူမည်)
+LINE=\$(vnstat -i "\$INTERFACE" -m | grep -E '^[[:space:]]+[A-Za-z0-9]+' | head -n 1)
+
+# ရလဒ်မှ Total Value နှင့် Unit (GiB / MiB / TiB) ကို ခွဲထုတ်ခြင်း (Column 4 သည် Total ဖြစ်သည်)
+VAL=\$(echo "\$LINE" | awk -F'|' '{print \$4}' | awk '{print \$1}')
+UNIT=\$(echo "\$LINE" | awk -F'|' '{print \$4}' | awk '{print \$2}')
 
 # Unit အလိုက် Megabytes (MB) သို့ တိကျစွာ ပြောင်းလဲတွက်ချက်ခြင်း
-case "$UNIT" in
+case "\$UNIT" in
     "TiB"|"TB")
-        CURRENT_MB=$(awk "BEGIN {printf \"%.0f\", $VAL * 1024 * 1024}")
+        CURRENT_MB=\$(awk "BEGIN {printf \"%.0f\", \$VAL * 1024 * 1024}")
         ;;
     "GiB"|"GB")
-        CURRENT_MB=$(awk "BEGIN {printf \"%.0f\", $VAL * 1024}")
+        CURRENT_MB=\$(awk "BEGIN {printf \"%.0f\", \$VAL * 1024}")
         ;;
     "MiB"|"MB")
-        CURRENT_MB=$(awk "BEGIN {printf \"%.0f\", $VAL}")
+        CURRENT_MB=\$(awk "BEGIN {printf \"%.0f\", \$VAL}")
         ;;
     *)
         CURRENT_MB=0
         ;;
 esac
 
-# MB မှ GB သို့ ပြောင်းလဲခြင်း (Log ဖိုင်တွင် ပြသရန်အတွက်)
-CURRENT_GB=$(awk "BEGIN {printf \"%.2f\", $CURRENT_MB/1024}")
-LIMIT_MB=$((LIMIT_GB * 1024))
+# MB မှ GB သို့ ပြောင်းလဲခြင်း
+CURRENT_GB=\$(awk "BEGIN {printf \"%.2f\", \$CURRENT_MB/1024}")
+LIMIT_MB=\$((LIMIT_GB * 1024))
 
-# ၁။ Cron run တိုင်း စစ်ဆေးချက် မှတ်တမ်းတင်ခြင်း (Status Log)
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Checked: Current usage ${CURRENT_GB} GB (${CURRENT_MB} MB) / Limit ${LIMIT_GB} GB" >> /var/log/traffic_check.log
+# ၁။ Cron run တိုင်း စစ်ဆေးချက် မှတ်တမ်းတင်ခြင်း (Current Usage / Limit GB ပြသမည်)
+echo "\${CURRENT_GB} GB / \${LIMIT_GB} GB" > /var/log/traffic_check.log
 
 # ၂။ စစ်ဆေးခြင်း - သတ်မှတ် Limit ထက် ကျော်လွန်သွားပါက စက်ကို ပိတ်ပစ်မည်
-if [ "$CURRENT_MB" -gt "$LIMIT_MB" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - EXCEEDED LIMIT! Current usage (${CURRENT_GB} GB) exceeded limit (${LIMIT_GB} GB). Powering off..." >> /var/log/traffic_shutdown.log
+if [ "\$CURRENT_MB" -gt "\$LIMIT_MB" ]; then
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') - EXCEEDED LIMIT! Current usage (\${CURRENT_GB} GB) exceeded limit (\${LIMIT_GB} GB). Powering off..." >> /var/log/traffic_shutdown.log
     /sbin/poweroff
 fi
 EOF
@@ -82,5 +93,4 @@ echo "စကရစ်ကို စမ်းသပ် run ကြည့်နေ�
 
 echo "=================================================="
 echo "အားလုံး အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။"
-echo "စနစ်သည် ၅ မိနစ်တစ်ကြိမ် Traffic ကို နောက်ကွယ်မှ စစ်ဆေးပေးသွားမည် ဖြစ်သည်။"
 echo "=================================================="
