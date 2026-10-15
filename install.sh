@@ -42,28 +42,23 @@ if [ -z "\$INTERFACE" ]; then
     INTERFACE="eth0"
 fi
 
-# လက်ရှိ လ အတွက် စုစုပေါင်း Traffic ကို vnstat မူလ output မှ တိုက်ရိုက်ဆွဲထုတ်ခြင်း (Locale ပြဿနာမရှိစေရန် ပထမဆုံး data line ကို ယူမည်)
-LINE=\$(vnstat -i "\$INTERFACE" -m | grep -E '^[[:space:]]+[A-Za-z0-9]+' | head -n 1)
+# လက်ရှိနှစ်နှင့်လကို ရယူခြင်း
+CUR_YEAR=\$(date +%Y)
+CUR_MONTH=\$(date +%m)
 
-# ရလဒ်မှ Total Value နှင့် Unit (GiB / MiB / TiB) ကို ခွဲထုတ်ခြင်း (Column 4 သည် Total ဖြစ်သည်)
-VAL=\$(echo "\$LINE" | awk -F'|' '{print \$4}' | awk '{print \$1}')
-UNIT=\$(echo "\$LINE" | awk -F'|' '{print \$4}' | awk '{print \$2}')
+# vnstat --json နှင့် jq ကို အသုံးပြု၍ လက်ရှိလအတွက် စုစုပေါင်း Bytes ကို အတိအကျရယူခြင်း
+TOTAL_BYTES=\$(vnstat -i "\$INTERFACE" --json 2>/dev/null | jq --arg y "\$CUR_YEAR" --arg m "\$CUR_MONTH" '
+    .interfaces[0].traffic.month[]? 
+    | select(.date.year == (\$y|tonumber) and .date.month == (\$m|tonumber)) 
+    | (.rx + .tx)
+')
 
-# Unit အလိုက် Megabytes (MB) သို့ တိကျစွာ ပြောင်းလဲတွက်ချက်ခြင်း
-case "\$UNIT" in
-    "TiB"|"TB")
-        CURRENT_MB=\$(awk "BEGIN {printf \"%.0f\", \$VAL * 1024 * 1024}")
-        ;;
-    "GiB"|"GB")
-        CURRENT_MB=\$(awk "BEGIN {printf \"%.0f\", \$VAL * 1024}")
-        ;;
-    "MiB"|"MB")
-        CURRENT_MB=\$(awk "BEGIN {printf \"%.0f\", \$VAL}")
-        ;;
-    *)
-        CURRENT_MB=0
-        ;;
-esac
+if [ -z "\$TOTAL_BYTES" ] || [ "\$TOTAL_BYTES" = "null" ]; then
+    TOTAL_BYTES=0
+fi
+
+# Bytes မှ Megabytes (MB) သို့ ပြောင်းလဲခြင်း
+CURRENT_MB=\$(awk "BEGIN {printf \"%.0f\", \$TOTAL_BYTES / (1024 * 1024)}")
 
 # MB မှ GB သို့ ပြောင်းလဲခြင်း
 CURRENT_GB=\$(awk "BEGIN {printf \"%.2f\", \$CURRENT_MB/1024}")
@@ -73,7 +68,7 @@ LIMIT_MB=\$((LIMIT_GB * 1024))
 echo "\${CURRENT_GB} GB / \${LIMIT_GB} GB" > /var/log/traffic_check.log
 
 # ၂။ စစ်ဆေးခြင်း - သတ်မှတ် Limit ထက် ကျော်လွန်သွားပါက စက်ကို ပိတ်ပစ်မည်
-if [ "\$CURRENT_MB" -gt "\$LIMIT_MB" ]; then
+if [ "\$(awk "BEGIN {print (\$CURRENT_MB > \$LIMIT_MB)}")" -eq 1 ]; then
     echo "\$(date '+%Y-%m-%d %H:%M:%S') - EXCEEDED LIMIT! Current usage (\${CURRENT_GB} GB) exceeded limit (\${LIMIT_GB} GB). Powering off..." >> /var/log/traffic_shutdown.log
     /sbin/poweroff
 fi
